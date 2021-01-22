@@ -1,0 +1,171 @@
+#!/bin/bash
+
+##
+#$ -S /bin/bash
+##
+#### This is an example submission script.
+#### The lines that begin with `#$` are used
+#### as arguments to qsub, while lines that
+#### start with just `##` are comments
+##
+#### The below line determines how many CPUs
+#### your job will request. Only set it higher 
+#### if you need the additional memory
+#$ -pe smp 4
+##
+#### If your job requires lots more memory,
+#### use one of the below options by removing
+#### the first two `#`
+####$ -l mid_mem
+####$ -l high_mem
+##
+#### The below option determines which queues 
+#### your job is submitted to. Multiple can be
+#### passed if separated by a comma
+#$ -q UI 
+##
+#### The below option tells the compute node to 
+#### begin execution from the same directory as
+#### where you run the qsub. Otherwise, it is 
+#### executed from '~/' -- which is where your
+#### log file will end up. 
+#$ -cwd
+##
+#### The remining options all deal with making
+#### sure your log file is in the correct format
+#$ -j y
+#$ -o $JOB_NAME.log 
+#$ -ckpt user
+##################
+## DON'T FORGET ##
+##  TO SET THE  ## 
+##   JOB NAME   ##
+##################
+#$ -N gatkVQSR
+
+#### The below variables are a helpful way to
+#### avoid having to repeat long file paths many
+#### times. You may need to add more variables
+#### as we do more analyses. 
+DNA_HOME=~/workspace/dna
+DATA=$DNA_HOME/data
+TOOL=/bin
+
+
+#### The below lines print the date to the log
+#### and then store it as a variable
+date
+start=`date +%s`
+
+
+########################################
+## Put the commands you are executing ##
+## inside of the " " on the next line ##
+## so they will be printed to the log ##
+########################################
+CMD="
+"
+
+
+#### The below commands prints the text you
+#### assigned to the CMD variable to the log
+echo "**************************************"
+echo "commands=$CMD"
+echo "**************************************"
+
+########################################
+## Put the commands you are executing ##
+##  in the lines below this comment,  ##
+##   so they are actually  executed   ##
+########################################
+
+#directory where input vcfs are
+vcf=/inputdir
+#reference directory
+ref=/ftp.broadinstitute.org/bundle/hg38
+#directory to output to
+out=/outputdir
+#where gatk is
+tool=/gatk-4.1.5.0
+
+module load jdk/8u121
+
+$tool/gatk --java-options "-Xmx24g -Xms24g" VariantRecalibrator \
+#
+#input vcf
+-V $vcf/input.vcf.gz
+--trust-all-polymorphic \
+-tranche 100.0 -tranche 99.95 -tranche 99.9 -tranche 99.5 -tranche 99.0 -tranche 97.0 -tranche 96.0 -tranche 95.0 -tranche 94.0 -tranche 93.5 -tranche 93.0 -tranche 92.0 -tranche 91.0 -tranche 90.0 \
+-an FS -an ReadPosRankSum -an MQRankSum -an QD -an SOR -an DP \
+-mode INDEL \
+--max-gaussians 4 \
+-resource:mills,known=false,training=true,truth=true,prior=12 $ref/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
+-resource:axiomPoly,known=false,training=true,truth=false,prior=10 $ref/Axiom_Exome_Plus.genotypes.all_populations.poly.hg38.vcf.gz \
+-resource:dbsnp,known=true,training=false,truth=false,prior=2 $ref/dbsnp_138.hg38.vcf.gz \
+#
+# output table
+-O $out/output.indels.recal \
+#
+# output tranches
+--tranches-file $out/output.indel.tranches
+
+$tool/gatk --java-options "-Xmx3g -Xms3g" VariantRecalibrator \
+#
+# input vcf
+-V $vcf/input.vcf.gz \
+--trust-all-polymorphic \
+-tranche 100.0 -tranche 99.95 -tranche 99.9 -tranche 99.8 -tranche 99.6 -tranche 99.5 -tranche 99.4 -tranche 99.3 -tranche 99.0 -tranche 98.0 -tranche 97.0 -tranche 90.0 \
+-an QD -an MQRankSum -an ReadPosRankSum -an FS -an MQ -an SOR -an DP \
+-mode SNP \
+--max-gaussians 6 \
+-resource:hapmap,known=false,training=true,truth=true,prior=15 $ref/hapmap_3.3.hg38.vcf.gz \
+-resource:omni,known=false,training=true,truth=true,prior=12 $ref/1000G_omni2.5.hg38.vcf.gz \
+-resource:1000G,known=false,training=true,truth=false,prior=10 $ref/1000G_phase1.snps.high_confidence.hg38.vcf.gz \
+-resource:dbsnp,known=true,training=false,truth=false,prior=7 $ref/dbsnp_138.hg38.vcf.gz \
+#
+# output table -snps
+-O $out/output.snps.recal \
+#
+# output tranches
+--tranches-file $out/output.snp.tranches
+
+$tool/gatk --java-options "-Xmx5g -Xms5g" \
+ApplyVQSR \
+#
+# input vcf
+-V $vcf/input.vcf \
+#
+# output table and tranches for snps
+--recal-file $out/SNP/output.snps.recal \
+--tranches-file $out/SNP/output.snp.tranches \
+--truth-sensitivity-filter-level 99.7 \
+--create-output-variant-index true \
+-mode SNP \
+#
+# recalibrated vcf
+-O $out/output.bwa.md.bqsr.SNPS.vcf \
+
+$tool/gatk --java-options "-Xmx5g -Xms5g" \
+ApplyVQSR \
+#
+# recalibrated vcf
+-V  $out/output.bwa.md.bqsr.SNPS.vcf.gz \
+#
+# table and tranches
+--recal-file $out/output.indels.recal \
+--tranches-file $out/output.indel.tranches \
+--truth-sensitivity-filter-level 99.7 \
+--create-output-variant-index true \
+-mode INDEL \
+#
+# recalibrated vcf
+-O $out/output.bqsr.vqsr.vcf
+
+#### The below commands print the date that your
+#### job finished running to the log, and then
+#### calcualtes the total amount of time it took
+#### for the job to complete
+date
+end=`date +%s`
+runtime=$((end-start))
+echo "runtime=$runtime secs"
